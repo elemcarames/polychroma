@@ -101,6 +101,7 @@ openpyxl
 
 ## 📁 Project Structure
 
+```bash
 polychroma/
 │
 ├── app.py                      # Main entry point
@@ -114,8 +115,8 @@ polychroma/
 │   ├── color_extraction.py     # RGB/HSV/L extraction
 │   └── export.py               # xlsx/csv/json export
 └── .streamlit/
-└── config.toml             # Theme configuration
-
+    └── config.toml             # Theme configuration
+```
 ---
 
 ## 👩‍🔬 About
