@@ -1,11 +1,10 @@
 import streamlit as st
 from pathlib import Path
+from PIL import Image as PILImage
 
 from views import import_images, configuration, export_settings, sampling
 
 # ── Page config ───────────────────────────────────────────────
-from PIL import Image as PILImage
-
 favicon = PILImage.open("assets/icon.png")
 
 st.set_page_config(
@@ -33,7 +32,8 @@ with st.sidebar:
             "📁 Import Images",
             "⚙️ Configuration",
             "💾 Export Settings",
-            "🔬 Sampling"
+            "🔬 Sampling",
+            "🎯 Threshold Segmentation"
         ],
         label_visibility="collapsed"
     )
@@ -47,3 +47,6 @@ elif tab == "💾 Export Settings":
     export_settings.render()
 elif tab == "🔬 Sampling":
     sampling.render()
+elif tab == "🎯 Threshold Segmentation":
+    from views import threshold_segmentation
+    threshold_segmentation.render()
