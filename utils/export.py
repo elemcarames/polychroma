@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 import json
-import io # Importar io para lidar com streams de bytes
+import io 
+import os
 
 
 def colorgramme_to_row(colorgramme):
