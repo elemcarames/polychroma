@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import json
-import os
+import io # Importar io para lidar com streams de bytes
 
 
 def colorgramme_to_row(colorgramme):
@@ -67,6 +67,7 @@ def build_dataframe(all_results, sampling_mode):
     return pd.DataFrame(rows)
 
 
+# A função export_results original, mantida caso ainda seja usada
 def export_results(all_results, sampling_mode, output_path, file_name, fmt):
     """
     Export results to file.
@@ -87,3 +88,35 @@ def export_results(all_results, sampling_mode, output_path, file_name, fmt):
         df.to_json(full_path, orient="records", indent=2)
 
     return full_path, None
+
+
+# NOVA FUNÇÃO para retornar os bytes do arquivo
+def export_results_as_bytes(all_results, sampling_mode, file_name, fmt):
+    """
+    Export results and return as bytes for download.
+    """
+    df = build_dataframe(all_results, sampling_mode)
+
+    if df.empty:
+        return None
+
+    output_buffer = io.BytesIO()
+
+    if fmt == "xlsx":
+        # Para xlsx, pandas precisa de um ExcelWriter
+        with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Sheet1')
+        output_buffer.seek(0) # Volta para o início do buffer
+        return output_buffer.getvalue()
+    elif fmt == "csv":
+        # Para csv, to_csv pode escrever diretamente no buffer de string, depois codificamos
+        df.to_csv(output_buffer, index=False)
+        output_buffer.seek(0)
+        return output_buffer.getvalue()
+    elif fmt == "json":
+        # Para json, to_json pode escrever diretamente no buffer de string, depois codificamos
+        df.to_json(output_buffer, orient="records", indent=2)
+        output_buffer.seek(0)
+        return output_buffer.getvalue()
+
+    return None

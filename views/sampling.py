@@ -1,10 +1,10 @@
 import streamlit as st
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 from utils.color_extraction import get_polygon_mask, extract_colorgramme
+
 
 CLASS_COLORS = [
     "#FF6400", "#00C8FF", "#00FF88", "#FFD700",
@@ -79,6 +79,7 @@ def plot_group(ax, group_name, params, class_colorgrammes):
                 has_data = True
 
     if has_data:
+        
         ax.legend(fontsize=7, facecolor="#1E1E1E",
                   labelcolor="white", loc="upper right")
     return has_data
@@ -87,13 +88,11 @@ def plot_group(ax, group_name, params, class_colorgrammes):
 def render():
     st.header("🔬 Sampling")
 
-    # ── Check prerequisites ───────────────────────────────────
-    if "images" not in st.session_state or not st.session_state["images"]:
+    if "uploaded_images_data" not in st.session_state or not st.session_state["uploaded_images_data"]:
         st.warning("No images loaded. Please go to Import Images first.")
         st.stop()
 
-    images = st.session_state["images"]
-    folder_path = st.session_state["folder_path"]
+    images_data = st.session_state["uploaded_images_data"]
     classes = st.session_state.get("classes", ["Default"])
     config = st.session_state.get("config", {})
     config_params = config.get("params", {"R": True, "G": True, "B": True})
@@ -103,7 +102,6 @@ def render():
 
     idx = st.session_state["img_index"]
 
-    # ── Navigation ────────────────────────────────────────────
     st.markdown("""
         <style>
         .img-nav-info {
@@ -161,24 +159,21 @@ def render():
                 st.rerun()
     with col_info:
         st.markdown(
-            f'<div class="img-nav-info">Image {idx + 1} of {len(images)}</div>'
-            f'<div class="img-nav-filename">{images[idx]}</div>',
+            f'<div class="img-nav-info">Image {idx + 1} of {len(images_data)}</div>'
+            f'<div class="img-nav-filename">{images_data[idx]["name"]}</div>',
             unsafe_allow_html=True
         )
     with col_next:
         if st.button("Next  ➡️", use_container_width=True, key=f"btn_next_{idx}"):
-            if st.session_state["img_index"] < len(images) - 1:
+            if st.session_state["img_index"] < len(images_data) - 1:
                 st.session_state["img_index"] += 1
                 st.rerun()
 
-    # ── Load image ────────────────────────────────────────────
     idx = st.session_state["img_index"]
-    img_path = os.path.join(folder_path, images[idx])
-    img = Image.open(img_path).convert("RGB")
+    img = images_data[idx]["image"].convert("RGB")
     img_array = np.array(img)
     img_w, img_h = img.size
 
-    # ── Class selector ────────────────────────────────────────
     if len(classes) > 1:
         selected_class = st.radio(
             "Active class:",
@@ -189,7 +184,6 @@ def render():
     else:
         selected_class = classes[0]
 
-    # ── Two column layout ─────────────────────────────────────
     col_canvas, col_chart = st.columns([1, 1])
 
     with col_canvas:
@@ -258,7 +252,7 @@ def render():
                         plt.tight_layout()
                         if has_data:
                             st.pyplot(fig)
-                        plt.close()
+                        plt.close(fig)
                 else:
                     st.info("Draw a polygon to see the colorgramme.")
             else:
@@ -266,7 +260,6 @@ def render():
         else:
             st.info("Draw a polygon to see the colorgramme.")
 
-    # ── Save button ───────────────────────────────────────────
     st.markdown("---")
     col_save, col_class_save = st.columns([3, 1])
 
@@ -294,7 +287,7 @@ def render():
                         mask = get_polygon_mask(points, img_h, img_w)
                         colorgramme = extract_colorgramme(img_array, mask, config_params)
                         results.append({
-                            "image": images[idx],
+                            "image": images_data[idx]["name"],
                             "polygon": i + 1,
                             "class": selected_class,
                             "colorgramme": colorgramme,
@@ -303,12 +296,11 @@ def render():
 
                     st.session_state[f"results_{idx}"] = results
 
-                    # Accumulate all results across images
                     all_results = []
-                    for i in range(len(images)):
+                    for i in range(len(images_data)):
                         img_results = st.session_state.get(f"results_{i}", [])
                         all_results.extend(img_results)
                     st.session_state["all_results"] = all_results
 
-                    st.success(f"✅ {len(results)} polygon(s) saved for {images[idx]}! "
+                    st.success(f"✅ {len(results)} polygon(s) saved for {images_data[idx]['name']}! "
                                f"Total: {len(all_results)} polygon(s) across all images.")

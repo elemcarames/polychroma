@@ -1,28 +1,10 @@
 import streamlit as st
-import os
-from utils.export import export_results
 
 
 def render():
     st.header("💾 Export Settings")
 
-    st.subheader("Output Folder")
-    output_path = st.text_input(
-        "Save results to:",
-        placeholder="C:/results/",
-        value=st.session_state.get("output_path", "")
-    )
 
-    if output_path:
-        if os.path.isdir(output_path):
-            st.success(f"Folder found: {output_path}")
-            st.session_state["output_path"] = output_path
-        else:
-            create = st.button("📁 Create folder")
-            if create:
-                os.makedirs(output_path, exist_ok=True)
-                st.session_state["output_path"] = output_path
-                st.success(f"Folder created: {output_path}")
 
     st.markdown("---")
     st.subheader("File Format")
@@ -41,16 +23,17 @@ def render():
     )
     st.session_state["file_name"] = file_name
 
-    if output_path and file_name:
-        preview = os.path.join(output_path, f"{file_name}.{export_format}")
-        st.info(f"📄 Output file: `{preview}`")
+    # Removemos o preview de caminho local
+    # if output_path and file_name:
+    #     preview = os.path.join(output_path, f"{file_name}.{export_format}")
+    #     st.info(f"📄 Output file: `{preview}`")
 
     st.markdown("---")
     st.subheader("Export")
 
     # Summary of saved data
     all_results = st.session_state.get("all_results", [])
-    images = st.session_state.get("images", [])
+    images = st.session_state.get("uploaded_images_data", []) # Usar o novo nome da session_state
     saved_images = len(set(r["image"] for r in all_results)) if all_results else 0
 
     col1, col2 = st.columns(2)
@@ -63,22 +46,32 @@ def render():
 
     if not all_results:
         st.warning("No data saved yet. Go to Sampling and save polygons first.")
-    elif not output_path:
-        st.warning("Please set an output folder above.")
     elif not file_name:
         st.warning("Please set a file name above.")
     else:
         sampling_mode = st.session_state.get("config", {}).get(
             "sampling_mode", "One colorgramme per polygon")
 
-        if st.button("🚀 Export results", use_container_width=True):
-            with st.spinner("Exporting..."):
-                full_path, error = export_results(
-                    all_results, sampling_mode,
-                    output_path, file_name, export_format
-                )
-            if error:
-                st.error(f"Export failed: {error}")
-            else:
-                st.success(f"✅ File saved: `{full_path}`")
-                
+
+        from utils.export import export_results_as_bytes # Vamos criar essa nova função ou adaptar a existente
+
+        if st.button("🚀 Prepare for Download", use_container_width=True):
+            with st.spinner("Preparing data for download..."):
+                try:
+                    # Chama a função que agora retorna os bytes do arquivo
+                    file_bytes = export_results_as_bytes(
+                        all_results, sampling_mode, file_name, export_format
+                    )
+                    if file_bytes:
+                        st.success("Data ready for download!")
+                        st.download_button(
+                            label=f"⬇️ Download {file_name}.{export_format}",
+                            data=file_bytes,
+                            file_name=f"{file_name}.{export_format}",
+                            mime=f"application/{export_format}" if export_format != "xlsx" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    else:
+                        st.error("Failed to prepare data for download.")
+                except Exception as e:
+                    st.error(f"Error preparing data: {e}")

@@ -1,0 +1,10 @@
+# Ignorar pastas de cache do Python
+__pycache__/
+*.pyc
+
+# Ignorar virtual environment
+venv/
+
+# Ignorar arquivos de dados temporários ou de log (se houver)
+*.log
+*.tmp

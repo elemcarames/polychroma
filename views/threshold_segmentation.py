@@ -1,12 +1,10 @@
 import streamlit as st
-import os
 import numpy as np
 from PIL import Image
 import colorsys
 
 
 def rgb_to_hsv_array(img_array):
-    """Convert RGB image array to HSV."""
     img_float = img_array.astype(float) / 255.0
     hsv = np.zeros_like(img_float)
     for i in range(img_float.shape[0]):
@@ -18,7 +16,6 @@ def rgb_to_hsv_array(img_array):
 
 
 def compute_channel(img_array, channel):
-    """Extract a single channel array from image."""
     if channel == "R":
         return img_array[:, :, 0].astype(float)
     elif channel == "G":
@@ -65,15 +62,12 @@ CHANNEL_RANGES = {
 def render():
     st.header("🎯 Threshold Segmentation")
 
-    # ── Check prerequisites ───────────────────────────────────
-    if "images" not in st.session_state or not st.session_state["images"]:
+    if "uploaded_images_data" not in st.session_state or not st.session_state["uploaded_images_data"]:
         st.warning("No images loaded. Please go to Import Images first.")
         st.stop()
 
-    images = st.session_state["images"]
-    folder_path = st.session_state["folder_path"]
+    images_data = st.session_state["uploaded_images_data"]
 
-    # ── Image navigation ──────────────────────────────────────
     if "thresh_img_index" not in st.session_state:
         st.session_state["thresh_img_index"] = 0
 
@@ -105,24 +99,21 @@ def render():
                 st.rerun()
     with col_info:
         st.markdown(
-            f'<div class="img-nav-info">Image {idx + 1} of {len(images)}</div>'
-            f'<div class="img-nav-filename">{images[idx]}</div>',
+            f'<div class="img-nav-info">Image {idx + 1} of {len(images_data)}</div>'
+            f'<div class="img-nav-filename">{images_data[idx]["name"]}</div>',
             unsafe_allow_html=True
         )
     with col_next:
         if st.button("Next  ➡️", use_container_width=True, key="thresh_next"):
-            if st.session_state["thresh_img_index"] < len(images) - 1:
+            if st.session_state["thresh_img_index"] < len(images_data) - 1:
                 st.session_state["thresh_img_index"] += 1
                 st.rerun()
 
-    # ── Load image ────────────────────────────────────────────
     idx = st.session_state["thresh_img_index"]
-    img_path = os.path.join(folder_path, images[idx])
-    img = Image.open(img_path).convert("RGB")
+    img = images_data[idx]["image"].convert("RGB")
     img_array = np.array(img)
     img_w, img_h = img.size
 
-    # ── Controls ──────────────────────────────────────────────
     st.markdown("---")
     col_ctrl1, col_ctrl2 = st.columns([1, 2])
 
@@ -149,16 +140,13 @@ def render():
             key="thresh_slider"
         )
 
-    # ── Compute mask ──────────────────────────────────────────
     channel_array = compute_channel(img_array, channel)
     mask = (channel_array >= thresh_range[0]) & (channel_array <= thresh_range[1])
 
-    # Build mask display
     mask_display = np.zeros((img_h, img_w, 3), dtype=np.uint8)
     mask_display[mask] = [255, 100, 0]
     mask_display[~mask] = [30, 30, 30]
 
-    # ── Zoom — calculated before columns ─────────────────────
     zoom = st.slider("🔍 Zoom", min_value=20, max_value=100,
                      value=40, step=5, format="%d%%",
                      key="thresh_zoom")
@@ -167,11 +155,10 @@ def render():
     display_h = int(img_h * scale_pct)
     img_display = img.resize((display_w, display_h))
 
-    # ── Two column layout ─────────────────────────────────────
     st.markdown("---")
     col_img, col_mask = st.columns([1, 1])
 
-    
+
     with col_img:
         st.markdown("**Original Image**")
         st.image(img_display, use_container_width=False)
@@ -186,7 +173,6 @@ def render():
         st.image(mask_pil, use_container_width=False)
         st.caption(f"Selected: {n_pixels:,} pixels ({pct:.1f}% of image)")
 
-    # ── Use mask button ───────────────────────────────────────
     st.markdown("---")
     if st.button("✅ Use this mask for sampling", use_container_width=True,
                  key="thresh_use_mask"):
@@ -197,21 +183,18 @@ def render():
         colorgramme = extract_colorgramme(img_array, mask, config_params)
 
         result = [{
-            "image": images[idx],
+            "image": images_data[idx]["name"],
             "polygon": 1,
             "class": "threshold_mask",
             "colorgramme": colorgramme,
             "n_pixels": n_pixels
         }]
 
-        st.session_state[f"results_{idx}"] = result
+        if "all_results" not in st.session_state:
+            st.session_state["all_results"] = []
 
-        all_results = []
-        for i in range(len(images)):
-            img_results = st.session_state.get(f"results_{i}", [])
-            all_results.extend(img_results)
-        st.session_state["all_results"] = all_results
+        st.session_state["all_results"].extend(result)
 
-        st.success(f"✅ Mask saved for {images[idx]}! "
+        st.success(f"✅ Mask saved for {images_data[idx]['name']}! "
                    f"{n_pixels:,} pixels selected. "
                    f"Go to Export Settings to download results.")
