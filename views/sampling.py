@@ -186,6 +186,12 @@ def render():
 
     col_canvas, col_chart = st.columns([1, 1])
 
+    # DEBUG — remover depois
+    st.write(f"Image type: {type(img)}")
+    st.write(f"Image mode: {img.mode}")
+    st.write(f"Image size: {img.size}")
+    st.image(img, caption="Debug preview", width=200)
+
     with col_canvas:
         zoom = st.slider("🔍 Zoom", min_value=20, max_value=100,
                          value=40, step=5, format="%d%%",
