@@ -209,6 +209,31 @@ def render():
             key=f"canvas_{idx}_{zoom}"
         )
 
+    # --- BLOCO DE GERENCIAMENTO DE poly_classes (AJUSTADO) ---
+    poly_classes_key = f"poly_classes_{idx}"
+    if poly_classes_key not in st.session_state:
+        st.session_state[poly_classes_key] = []
+
+    # Carrega a lista de classes atual para esta imagem (trabalha com uma CÓPIA)
+    poly_classes = list(st.session_state[poly_classes_key]) 
+
+    # Obtém os objetos desenhados no canvas
+    current_canvas_objects = canvas_result.json_data.get("objects", []) if canvas_result.json_data else []
+    # CORREÇÃO DO ERRO DE DIGITAÇÃO: 'o o' para 'o for o'
+    current_num_polygons_on_canvas = len([o for o in current_canvas_objects if o.get("type") == "path"])
+
+    # Compara o número de polígonos no canvas com o número de classes armazenadas
+    if current_num_polygons_on_canvas > len(poly_classes):
+        # Um novo polígono foi desenhado. Atribui a ele a classe atualmente selecionada.
+        poly_classes.append(selected_class)
+        st.session_state[poly_classes_key] = poly_classes # Atualiza na session_state
+    elif current_num_polygons_on_canvas < len(poly_classes):
+        # Um polígono foi removido. Trunca a lista.
+        poly_classes = poly_classes[:current_num_polygons_on_canvas]
+        st.session_state[poly_classes_key] = poly_classes # Atualiza na session_state
+    # --- Fim do gerenciamento de poly_classes ---
+
+
     with col_chart:
         st.markdown("**Colorgramme — average per class**")
 
@@ -228,8 +253,10 @@ def render():
                     if mask.sum() == 0:
                         continue
                     colorgramme = extract_colorgramme(img_array, mask, config_params)
-                    poly_classes = st.session_state.get(f"poly_classes_{idx}", [])
-                    assigned_class = poly_classes[i] if i < len(poly_classes) else selected_class
+
+                    # Usa a poly_classes já gerenciada acima para o gráfico
+                    assigned_class = poly_classes[i] if i < len(poly_classes) else selected_class 
+
                     if assigned_class in class_colorgrammes_raw:
                         class_colorgrammes_raw[assigned_class].append(colorgramme)
 
@@ -286,10 +313,14 @@ def render():
                             continue
                         mask = get_polygon_mask(points, img_h, img_w)
                         colorgramme = extract_colorgramme(img_array, mask, config_params)
+
+                        # Usa a poly_classes já gerenciada acima para o salvamento
+                        assigned_class_for_this_polygon = poly_classes[i] if i < len(poly_classes) else selected_class
+
                         results.append({
                             "image": images_data[idx]["name"],
                             "polygon": i + 1,
-                            "class": selected_class,
+                            "class": assigned_class_for_this_polygon, 
                             "colorgramme": colorgramme,
                             "n_pixels": int(mask.sum())
                         })
