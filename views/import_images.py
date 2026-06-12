@@ -14,21 +14,21 @@ def render():
     )
 
     if uploaded_files:
-        # Lista para armazenar as imagens carregadas
         images_data = []
         for uploaded_file in uploaded_files:
             try:
-                # Lê o arquivo como bytes
                 bytes_data = uploaded_file.getvalue()
-                # Abre a imagem usando PIL (Pillow)
-                img = Image.open(io.BytesIO(bytes_data))
-                images_data.append({"name": uploaded_file.name, "image": img})
+                img = Image.open(io.BytesIO(bytes_data)).convert("RGB")
+                images_data.append({
+                    "name": uploaded_file.name,
+                    "image": img,
+                    "bytes": bytes_data  # guarda os bytes também
+                })
             except Exception as e:
                 st.error(f"Error processing {uploaded_file.name}: {e}")
 
         if images_data:
             st.success(f"{len(images_data)} image(s) uploaded successfully.")
-            # Armazena as imagens no session_state
             st.session_state["uploaded_images_data"] = images_data
             # Opcional: para compatibilidade com outras partes do código que esperam 'images'
             # st.session_state["images"] = [img_data["name"] for img_data in images_data]
