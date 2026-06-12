@@ -170,7 +170,10 @@ def render():
                 st.rerun()
 
     idx = st.session_state["img_index"]
-    img = Image.open(io.BytesIO(images_data[idx]["bytes"])).convert("RGB")
+    if "bytes" in images_data[idx]:
+        img = Image.open(io.BytesIO(images_data[idx]["bytes"])).convert("RGB")
+    else:
+        img = images_data[idx]["image"].convert("RGB")
     img_array = np.array(img)
     img_w, img_h = img.size
 
