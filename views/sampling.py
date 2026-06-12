@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 from utils.color_extraction import get_polygon_mask, extract_colorgramme
-
+import io
 
 CLASS_COLORS = [
     "#FF6400", "#00C8FF", "#00FF88", "#FFD700",
@@ -194,7 +194,12 @@ def render():
         canvas_w = int(img_w * scale_pct)
         canvas_h = int(img_h * scale_pct)
         scale = scale_pct
-        img_display = img.resize((canvas_w, canvas_h))
+
+        img_display = img.resize((canvas_w, canvas_h), Image.LANCZOS)
+        buf = io.BytesIO()
+        img_display.save(buf, format="PNG")
+        buf.seek(0)
+        img_display = Image.open(buf).convert("RGB")
 
         st.markdown("**Draw polygons** — left click: add point | right click: close")
         canvas_result = st_canvas(
@@ -208,7 +213,6 @@ def render():
             drawing_mode="polygon",
             key=f"canvas_{idx}_{zoom}"
         )
-
     # --- BLOCO DE GERENCIAMENTO DE poly_classes (AJUSTADO) ---
     poly_classes_key = f"poly_classes_{idx}"
     if poly_classes_key not in st.session_state:
