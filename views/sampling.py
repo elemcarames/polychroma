@@ -189,39 +189,38 @@ def render():
 
     col_canvas, col_chart = st.columns([1, 1])
 
-    # DEBUG — remover depois
-    st.write(f"Image type: {type(img)}")
-    st.write(f"Image mode: {img.mode}")
-    st.write(f"Image size: {img.size}")
-    st.image(img, caption="Debug preview", width=200)
+
+    import base64
 
     with col_canvas:
-        zoom = st.slider("🔍 Zoom", min_value=20, max_value=100,
-                         value=40, step=5, format="%d%%",
-                         key=f"zoom_{idx}")
-        scale_pct = zoom / 100.0
-        canvas_w = int(img_w * scale_pct)
-        canvas_h = int(img_h * scale_pct)
-        scale = scale_pct
+            zoom = st.slider("🔍 Zoom", min_value=20, max_value=100,
+                            value=40, step=5, format="%d%%",
+                            key=f"zoom_{idx}")
+            scale_pct = zoom / 100.0
+            canvas_w = int(img_w * scale_pct)
+            canvas_h = int(img_h * scale_pct)
+            scale = scale_pct
 
-        img_display = img.resize((canvas_w, canvas_h), Image.LANCZOS)
-        buf = io.BytesIO()
-        img_display.save(buf, format="PNG")
-        buf.seek(0)
-        img_display = Image.open(buf).convert("RGB")
+            img_display = img.resize((canvas_w, canvas_h), Image.LANCZOS)
+            buf = io.BytesIO()
+            img_display.save(buf, format="PNG")
+            buf.seek(0)
+            img_display = Image.open(buf)
+            img_display.load()  # força carregamento completo na memória
 
-        st.markdown("**Draw polygons** — left click: add point | right click: close")
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 100, 0, 0.15)",
-            stroke_width=2,
-            stroke_color=CLASS_COLORS[classes.index(selected_class) % len(CLASS_COLORS)],
-            background_image=img_display,
-            update_streamlit=True,
-            height=canvas_h,
-            width=canvas_w,
-            drawing_mode="polygon",
-            key=f"canvas_{idx}_{zoom}"
-        )
+            st.markdown("**Draw polygons** — left click: add point | right click: close")
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 100, 0, 0.15)",
+                stroke_width=2,
+                stroke_color=CLASS_COLORS[classes.index(selected_class) % len(CLASS_COLORS)],
+                background_image=img_display,
+                update_streamlit=True,
+                height=canvas_h,
+                width=canvas_w,
+                drawing_mode="polygon",
+                key=f"canvas_{idx}_{zoom}"
+            )
+            
     # --- BLOCO DE GERENCIAMENTO DE poly_classes (AJUSTADO) ---
     poly_classes_key = f"poly_classes_{idx}"
     if poly_classes_key not in st.session_state:
