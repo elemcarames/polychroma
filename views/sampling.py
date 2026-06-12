@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 from utils.color_extraction import get_polygon_mask, extract_colorgramme
-import io
 
 CLASS_COLORS = [
     "#FF6400", "#00C8FF", "#00FF88", "#FFD700",
@@ -79,7 +78,6 @@ def plot_group(ax, group_name, params, class_colorgrammes):
                 has_data = True
 
     if has_data:
-        
         ax.legend(fontsize=7, facecolor="#1E1E1E",
                   labelcolor="white", loc="upper right")
     return has_data
@@ -170,10 +168,13 @@ def render():
                 st.rerun()
 
     idx = st.session_state["img_index"]
+    
+    import io
     if "bytes" in images_data[idx]:
         img = Image.open(io.BytesIO(images_data[idx]["bytes"])).convert("RGB")
     else:
         img = images_data[idx]["image"].convert("RGB")
+    
     img_array = np.array(img)
     img_w, img_h = img.size
 
@@ -188,63 +189,74 @@ def render():
         selected_class = classes[0]
 
     col_canvas, col_chart = st.columns([1, 1])
-
-
-    import base64
-
+    
     with col_canvas:
-            zoom = st.slider("🔍 Zoom", min_value=20, max_value=100,
-                            value=40, step=5, format="%d%%",
-                            key=f"zoom_{idx}")
-            scale_pct = zoom / 100.0
-            canvas_w = int(img_w * scale_pct)
-            canvas_h = int(img_h * scale_pct)
-            scale = scale_pct
+        zoom = st.slider("🔍 Zoom", min_value=20, max_value=100,
+                        value=40, step=5, format="%d%%",
+                        key=f"zoom_{idx}")
+        scale_pct = zoom / 100.0
+        canvas_w = int(img_w * scale_pct)
+        canvas_h = int(img_h * scale_pct)
+        scale = scale_pct
 
-            img_display = img.resize((canvas_w, canvas_h), Image.LANCZOS)
-            buf = io.BytesIO()
-            img_display.save(buf, format="PNG")
-            buf.seek(0)
-            img_display = Image.open(buf)
-            img_display.load()  # força carregamento completo na memória
+        img_display = img.resize((canvas_w, canvas_h), Image.LANCZOS)
+        buf = io.BytesIO()
+        img_display.save(buf, format="PNG")
+        buf.seek(0)
+        img_display = Image.open(buf)
+        img_display.load()
 
-            st.markdown("**Draw polygons** — left click: add point | right click: close")
-            canvas_result = st_canvas(
-                fill_color="rgba(255, 100, 0, 0.15)",
-                stroke_width=2,
-                stroke_color=CLASS_COLORS[classes.index(selected_class) % len(CLASS_COLORS)],
-                background_image=img_display,
-                update_streamlit=True,
-                height=canvas_h,
-                width=canvas_w,
-                drawing_mode="polygon",
-                key=f"canvas_{idx}_{zoom}"
-            )
-            
-    # --- BLOCO DE GERENCIAMENTO DE poly_classes (AJUSTADO) ---
+        st.markdown("**Draw polygons** — left click: add point | right click: close")
+        canvas_result = st_canvas(
+            fill_color="rgba(255, 100, 0, 0.15)",
+            stroke_width=2,
+            stroke_color=CLASS_COLORS[classes.index(selected_class) % len(CLASS_COLORS)],
+            background_image=img_display,
+            update_streamlit=True,
+            height=canvas_h,
+            width=canvas_w,
+            drawing_mode="polygon",
+            key=f"canvas_{idx}_{zoom}"
+        )
+    # --- BLOCO DE GERENCIAMENTO DE poly_classes (COM VERIFICAÇÃO) ---
     poly_classes_key = f"poly_classes_{idx}"
     if poly_classes_key not in st.session_state:
         st.session_state[poly_classes_key] = []
 
-    # Carrega a lista de classes atual para esta imagem (trabalha com uma CÓPIA)
-    poly_classes = list(st.session_state[poly_classes_key]) 
+    poly_classes = list(st.session_state[poly_classes_key])
 
-    # Obtém os objetos desenhados no canvas
+    # VERIFICA SE canvas_result TEM json_data
+    if canvas_result and canvas_result.json_data:
+        current_canvas_objects = canvas_result.json_data.get("objects", [])
+        current_num_polygons_on_canvas = len([o for o in current_canvas_objects if o.get("type") == "path"])
+    else:
+        current_canvas_objects = []
+        current_num_polygons_on_canvas = 0
+
+    if current_num_polygons_on_canvas > len(poly_classes):
+        poly_classes.append(selected_class)
+        st.session_state[poly_classes_key] = poly_classes
+    elif current_num_polygons_on_canvas < len(poly_classes):
+        poly_classes = poly_classes[:current_num_polygons_on_canvas]
+        st.session_state[poly_classes_key] = poly_classes
+        
+    # --- BLOCO DE GERENCIAMENTO DE poly_classes ---
+    poly_classes_key = f"poly_classes_{idx}"
+    if poly_classes_key not in st.session_state:
+        st.session_state[poly_classes_key] = []
+
+    poly_classes = list(st.session_state[poly_classes_key])
+
     current_canvas_objects = canvas_result.json_data.get("objects", []) if canvas_result.json_data else []
-    # CORREÇÃO DO ERRO DE DIGITAÇÃO: 'o o' para 'o for o'
     current_num_polygons_on_canvas = len([o for o in current_canvas_objects if o.get("type") == "path"])
 
-    # Compara o número de polígonos no canvas com o número de classes armazenadas
     if current_num_polygons_on_canvas > len(poly_classes):
-        # Um novo polígono foi desenhado. Atribui a ele a classe atualmente selecionada.
         poly_classes.append(selected_class)
-        st.session_state[poly_classes_key] = poly_classes # Atualiza na session_state
+        st.session_state[poly_classes_key] = poly_classes
     elif current_num_polygons_on_canvas < len(poly_classes):
-        # Um polígono foi removido. Trunca a lista.
         poly_classes = poly_classes[:current_num_polygons_on_canvas]
-        st.session_state[poly_classes_key] = poly_classes # Atualiza na session_state
-    # --- Fim do gerenciamento de poly_classes ---
-
+        st.session_state[poly_classes_key] = poly_classes
+    # --- Fim do gerenciamento ---
 
     with col_chart:
         st.markdown("**Colorgramme — average per class**")
@@ -266,8 +278,7 @@ def render():
                         continue
                     colorgramme = extract_colorgramme(img_array, mask, config_params)
 
-                    # Usa a poly_classes já gerenciada acima para o gráfico
-                    assigned_class = poly_classes[i] if i < len(poly_classes) else selected_class 
+                    assigned_class = poly_classes[i] if i < len(poly_classes) else selected_class
 
                     if assigned_class in class_colorgrammes_raw:
                         class_colorgrammes_raw[assigned_class].append(colorgramme)
@@ -326,13 +337,12 @@ def render():
                         mask = get_polygon_mask(points, img_h, img_w)
                         colorgramme = extract_colorgramme(img_array, mask, config_params)
 
-                        # Usa a poly_classes já gerenciada acima para o salvamento
                         assigned_class_for_this_polygon = poly_classes[i] if i < len(poly_classes) else selected_class
 
                         results.append({
                             "image": images_data[idx]["name"],
                             "polygon": i + 1,
-                            "class": assigned_class_for_this_polygon, 
+                            "class": assigned_class_for_this_polygon,
                             "colorgramme": colorgramme,
                             "n_pixels": int(mask.sum())
                         })
