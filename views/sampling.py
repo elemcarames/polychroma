@@ -83,16 +83,20 @@ def draw_overlay(img_display, polygons, current_points, stroke_color):
     draw = ImageDraw.Draw(overlay, "RGBA")
 
     # Draw closed polygons (each entry: {"points": [...], "class": ..., "color": hex})
+    # Each polygon is drawn fully isolated — outline as a closed loop (not connected
+    # to other polygons or to the in-progress polygon).
     for poly in polygons:
         pts = poly["points"]
-        if len(pts) >= 2:
-            color = hex_to_rgb(poly["color"])
-            draw.line(pts + [pts[0]], fill=color + (255,), width=2)
-            draw.polygon(pts, fill=color + (40,))
+        color = hex_to_rgb(poly["color"])
+        if len(pts) >= 3:
+            draw.polygon(pts, outline=color + (255,), fill=color + (40,), width=2)
+        elif len(pts) == 2:
+            draw.line(pts, fill=color + (255,), width=2)
         for p in pts:
             draw.ellipse([p[0] - 3, p[1] - 3, p[0] + 3, p[1] + 3], fill=color + (255,))
 
-    # Draw current in-progress polygon
+    # Draw current in-progress polygon — only connect points within this polygon,
+    # never to previously closed polygons.
     if current_points:
         color = hex_to_rgb(stroke_color)
         if len(current_points) >= 2:
