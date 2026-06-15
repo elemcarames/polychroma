@@ -205,6 +205,7 @@ def render():
     polygons_key = f"polygons_{idx}"
     current_key = f"current_points_{idx}"
     last_coords_key = f"last_coords_{idx}"
+    click_session_key = f"click_session_{idx}"
 
     if polygons_key not in st.session_state:
         st.session_state[polygons_key] = []  # list of {"points": [...], "class": ..., "color": ...}
@@ -212,6 +213,8 @@ def render():
         st.session_state[current_key] = []  # points of polygon being drawn
     if last_coords_key not in st.session_state:
         st.session_state[last_coords_key] = None
+    if click_session_key not in st.session_state:
+        st.session_state[click_session_key] = 0
 
     polygons = st.session_state[polygons_key]
     current_points = st.session_state[current_key]
@@ -235,7 +238,7 @@ def render():
         st.markdown("**Click to add points** — use buttons below to close / undo / reset")
         coords = streamlit_image_coordinates(
             overlay_img,
-            key=f"coords_{idx}_{zoom}"
+            key=f"coords_{idx}_{zoom}_{st.session_state[click_session_key]}"
         )
 
         # Detect new click (compare with last recorded click)
@@ -260,6 +263,7 @@ def render():
                     st.session_state[polygons_key] = polygons
                     st.session_state[current_key] = []
                     st.session_state[last_coords_key] = None
+                    st.session_state[click_session_key] += 1
                     st.rerun()
                 else:
                     st.warning("Need at least 3 points to close a polygon.")
@@ -269,16 +273,19 @@ def render():
                     current_points.pop()
                     st.session_state[current_key] = current_points
                     st.session_state[last_coords_key] = None
+                    st.session_state[click_session_key] += 1
                     st.rerun()
                 elif polygons:
                     polygons.pop()
                     st.session_state[polygons_key] = polygons
+                    st.session_state[click_session_key] += 1
                     st.rerun()
         with b3:
             if st.button("🗑️ Reset", use_container_width=True, key=f"reset_{idx}"):
                 st.session_state[polygons_key] = []
                 st.session_state[current_key] = []
                 st.session_state[last_coords_key] = None
+                st.session_state[click_session_key] += 1
                 st.rerun()
 
         st.caption(f"Polygons drawn: {len(polygons)}  |  Current points: {len(current_points)}")
