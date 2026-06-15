@@ -1,8 +1,9 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
-from streamlit_drawable_canvas import st_canvas
+import io
+from PIL import Image, ImageDraw
+from streamlit_image_coordinates import streamlit_image_coordinates
 from utils.color_extraction import get_polygon_mask, extract_colorgramme
 
 CLASS_COLORS = [
@@ -25,16 +26,9 @@ PARAM_GROUPS = {
 }
 
 
-def parse_polygon_points(path_data, scale):
-    points = []
-    if not path_data:
-        return points
-    for cmd in path_data:
-        if cmd[0] in ("M", "L"):
-            x = cmd[1] / scale
-            y = cmd[2] / scale
-            points.append((x, y))
-    return points
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
 
 def average_colorgrammes(colorgramme_list):
@@ -83,6 +77,32 @@ def plot_group(ax, group_name, params, class_colorgrammes):
     return has_data
 
 
+def draw_overlay(img_display, polygons, current_points, stroke_color):
+    """Draws all closed polygons + the polygon currently being drawn onto a copy of img_display."""
+    overlay = img_display.convert("RGBA").copy()
+    draw = ImageDraw.Draw(overlay, "RGBA")
+
+    # Draw closed polygons (each entry: {"points": [...], "class": ..., "color": hex})
+    for poly in polygons:
+        pts = poly["points"]
+        if len(pts) >= 2:
+            color = hex_to_rgb(poly["color"])
+            draw.line(pts + [pts[0]], fill=color + (255,), width=2)
+            draw.polygon(pts, fill=color + (40,))
+        for p in pts:
+            draw.ellipse([p[0] - 3, p[1] - 3, p[0] + 3, p[1] + 3], fill=color + (255,))
+
+    # Draw current in-progress polygon
+    if current_points:
+        color = hex_to_rgb(stroke_color)
+        if len(current_points) >= 2:
+            draw.line(current_points, fill=color + (255,), width=2)
+        for p in current_points:
+            draw.ellipse([p[0] - 3, p[1] - 3, p[0] + 3, p[1] + 3], fill=color + (255,))
+
+    return overlay.convert("RGB")
+
+
 def render():
     st.header("🔬 Sampling")
 
@@ -116,21 +136,9 @@ def render():
             padding-bottom: 0.3rem;
         }
         .stButton > button {
-            font-size: 1.2rem !important;
-            height: 3rem !important;
+            font-size: 1.05rem !important;
+            height: 2.6rem !important;
             font-weight: 600 !important;
-        }
-        canvas + div button,
-        div[class*="canvas"] button {
-            background-color: #444444 !important;
-            border-radius: 4px !important;
-            opacity: 0.7 !important;
-            transition: all 0.2s !important;
-        }
-        canvas + div button:hover,
-        div[class*="canvas"] button:hover {
-            background-color: #FF6400 !important;
-            opacity: 1 !important;
         }
         </style>
         <div style="
@@ -142,10 +150,10 @@ def render():
             color: #CCCCCC;
             margin-bottom: 8px;
         ">
-            🖱️ <b>Left click</b> — add point &nbsp;|&nbsp;
-            🖱️ <b>Right click</b> — close polygon &nbsp;|&nbsp;
-            ✏️ <b>Double click</b> — remove last point &nbsp;|&nbsp;
-            🗑️ <b>Toolbar below</b> — undo / reset
+            🖱️ <b>Click</b> — add point &nbsp;|&nbsp;
+            ✅ <b>Close Polygon</b> — finish current polygon &nbsp;|&nbsp;
+            ↩️ <b>Undo</b> — remove last point &nbsp;|&nbsp;
+            🗑️ <b>Reset</b> — clear all polygons for this image
         </div>
     """, unsafe_allow_html=True)
 
@@ -168,13 +176,12 @@ def render():
                 st.rerun()
 
     idx = st.session_state["img_index"]
-    
-    import io
+
     if "bytes" in images_data[idx]:
         img = Image.open(io.BytesIO(images_data[idx]["bytes"])).convert("RGB")
     else:
         img = images_data[idx]["image"].convert("RGB")
-    
+
     img_array = np.array(img)
     img_w, img_h = img.size
 
@@ -188,127 +195,138 @@ def render():
     else:
         selected_class = classes[0]
 
+    stroke_color = CLASS_COLORS[classes.index(selected_class) % len(CLASS_COLORS)]
+
+    # --- Session state for polygons on this image ---
+    polygons_key = f"polygons_{idx}"
+    current_key = f"current_points_{idx}"
+    last_coords_key = f"last_coords_{idx}"
+
+    if polygons_key not in st.session_state:
+        st.session_state[polygons_key] = []  # list of {"points": [...], "class": ..., "color": ...}
+    if current_key not in st.session_state:
+        st.session_state[current_key] = []  # points of polygon being drawn
+    if last_coords_key not in st.session_state:
+        st.session_state[last_coords_key] = None
+
+    polygons = st.session_state[polygons_key]
+    current_points = st.session_state[current_key]
+
     col_canvas, col_chart = st.columns([1, 1])
-    
+
     with col_canvas:
         zoom = st.slider("🔍 Zoom", min_value=20, max_value=100,
-                        value=40, step=5, format="%d%%",
-                        key=f"zoom_{idx}")
+                          value=40, step=5, format="%d%%",
+                          key=f"zoom_{idx}")
         scale_pct = zoom / 100.0
         canvas_w = int(img_w * scale_pct)
         canvas_h = int(img_h * scale_pct)
         scale = scale_pct
 
         img_display = img.resize((canvas_w, canvas_h), Image.LANCZOS)
-        buf = io.BytesIO()
-        img_display.save(buf, format="PNG")
-        buf.seek(0)
-        img_display = Image.open(buf)
-        img_display.load()
 
-        st.markdown("**Draw polygons** — left click: add point | right click: close")
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 100, 0, 0.15)",
-            stroke_width=2,
-            stroke_color=CLASS_COLORS[classes.index(selected_class) % len(CLASS_COLORS)],
-            background_image=img_display,
-            update_streamlit=True,
-            height=canvas_h,
-            width=canvas_w,
-            drawing_mode="polygon",
-            key=f"canvas_{idx}_{zoom}"
+        # Build overlay with existing polygons + current in-progress polygon
+        overlay_img = draw_overlay(img_display, polygons, current_points, stroke_color)
+
+        st.markdown("**Click to add points** — use buttons below to close / undo / reset")
+        coords = streamlit_image_coordinates(
+            overlay_img,
+            key=f"coords_{idx}_{zoom}"
         )
-    # --- BLOCO DE GERENCIAMENTO DE poly_classes (COM VERIFICAÇÃO) ---
-    poly_classes_key = f"poly_classes_{idx}"
-    if poly_classes_key not in st.session_state:
-        st.session_state[poly_classes_key] = []
 
-    poly_classes = list(st.session_state[poly_classes_key])
+        # Detect new click (compare with last recorded click)
+        if coords is not None:
+            click_tuple = (coords["x"], coords["y"])
+            if click_tuple != st.session_state[last_coords_key]:
+                st.session_state[last_coords_key] = click_tuple
+                current_points.append(click_tuple)
+                st.session_state[current_key] = current_points
+                st.rerun()
 
-    # VERIFICA SE canvas_result TEM json_data
-    if canvas_result and canvas_result.json_data:
-        current_canvas_objects = canvas_result.json_data.get("objects", [])
-        current_num_polygons_on_canvas = len([o for o in current_canvas_objects if o.get("type") == "path"])
-    else:
-        current_canvas_objects = []
-        current_num_polygons_on_canvas = 0
+        # Action buttons
+        b1, b2, b3 = st.columns(3)
+        with b1:
+            if st.button("✅ Close Polygon", use_container_width=True, key=f"close_{idx}"):
+                if len(current_points) >= 3:
+                    polygons.append({
+                        "points": list(current_points),
+                        "class": selected_class,
+                        "color": stroke_color
+                    })
+                    st.session_state[polygons_key] = polygons
+                    st.session_state[current_key] = []
+                    st.session_state[last_coords_key] = None
+                    st.rerun()
+                else:
+                    st.warning("Need at least 3 points to close a polygon.")
+        with b2:
+            if st.button("↩️ Undo Point", use_container_width=True, key=f"undo_{idx}"):
+                if current_points:
+                    current_points.pop()
+                    st.session_state[current_key] = current_points
+                    st.session_state[last_coords_key] = None
+                    st.rerun()
+                elif polygons:
+                    polygons.pop()
+                    st.session_state[polygons_key] = polygons
+                    st.rerun()
+        with b3:
+            if st.button("🗑️ Reset", use_container_width=True, key=f"reset_{idx}"):
+                st.session_state[polygons_key] = []
+                st.session_state[current_key] = []
+                st.session_state[last_coords_key] = None
+                st.rerun()
 
-    if current_num_polygons_on_canvas > len(poly_classes):
-        poly_classes.append(selected_class)
-        st.session_state[poly_classes_key] = poly_classes
-    elif current_num_polygons_on_canvas < len(poly_classes):
-        poly_classes = poly_classes[:current_num_polygons_on_canvas]
-        st.session_state[poly_classes_key] = poly_classes
-        
-    # --- BLOCO DE GERENCIAMENTO DE poly_classes ---
-    poly_classes_key = f"poly_classes_{idx}"
-    if poly_classes_key not in st.session_state:
-        st.session_state[poly_classes_key] = []
+        st.caption(f"Polygons drawn: {len(polygons)}  |  Current points: {len(current_points)}")
 
-    poly_classes = list(st.session_state[poly_classes_key])
-
-    current_canvas_objects = canvas_result.json_data.get("objects", []) if canvas_result.json_data else []
-    current_num_polygons_on_canvas = len([o for o in current_canvas_objects if o.get("type") == "path"])
-
-    if current_num_polygons_on_canvas > len(poly_classes):
-        poly_classes.append(selected_class)
-        st.session_state[poly_classes_key] = poly_classes
-    elif current_num_polygons_on_canvas < len(poly_classes):
-        poly_classes = poly_classes[:current_num_polygons_on_canvas]
-        st.session_state[poly_classes_key] = poly_classes
-    # --- Fim do gerenciamento ---
+    # poly_classes derived directly from saved polygons (no separate tracking needed)
+    poly_classes = [p["class"] for p in polygons]
 
     with col_chart:
         st.markdown("**Colorgramme — average per class**")
 
-        if canvas_result.json_data is not None:
-            objects = canvas_result.json_data.get("objects", [])
-            polygons = [o for o in objects if o.get("type") == "path"]
+        if polygons:
+            class_colorgrammes_raw = {c: [] for c in classes}
 
-            if polygons:
-                class_colorgrammes_raw = {c: [] for c in classes}
+            for i, poly in enumerate(polygons):
+                # Convert displayed-image coordinates back to original image coordinates
+                points = [(px / scale, py / scale) for (px, py) in poly["points"]]
+                if len(points) < 3:
+                    continue
+                mask = get_polygon_mask(points, img_h, img_w)
+                if mask.sum() == 0:
+                    continue
+                colorgramme = extract_colorgramme(img_array, mask, config_params)
 
-                for i, poly in enumerate(polygons):
-                    path = poly.get("path", [])
-                    points = parse_polygon_points(path, scale)
-                    if len(points) < 3:
+                assigned_class = poly_classes[i] if i < len(poly_classes) else selected_class
+
+                if assigned_class in class_colorgrammes_raw:
+                    class_colorgrammes_raw[assigned_class].append(colorgramme)
+
+            class_colorgrammes_avg = {}
+            for class_name, cg_list in class_colorgrammes_raw.items():
+                if cg_list:
+                    class_colorgrammes_avg[class_name] = average_colorgrammes(cg_list)
+
+            if class_colorgrammes_avg:
+                for group_name, params in PARAM_GROUPS.items():
+                    active_params = [
+                        p for p in params if config_params.get(p) or
+                        (p in ["H", "S", "V"] and config_params.get("HSV"))
+                    ]
+                    if not active_params:
                         continue
-                    mask = get_polygon_mask(points, img_h, img_w)
-                    if mask.sum() == 0:
-                        continue
-                    colorgramme = extract_colorgramme(img_array, mask, config_params)
-
-                    assigned_class = poly_classes[i] if i < len(poly_classes) else selected_class
-
-                    if assigned_class in class_colorgrammes_raw:
-                        class_colorgrammes_raw[assigned_class].append(colorgramme)
-
-                class_colorgrammes_avg = {}
-                for class_name, cg_list in class_colorgrammes_raw.items():
-                    if cg_list:
-                        class_colorgrammes_avg[class_name] = average_colorgrammes(cg_list)
-
-                if class_colorgrammes_avg:
-                    for group_name, params in PARAM_GROUPS.items():
-                        active_params = [
-                            p for p in params if config_params.get(p) or
-                            (p in ["H", "S", "V"] and config_params.get("HSV"))
-                        ]
-                        if not active_params:
-                            continue
-                        fig, ax = plt.subplots(figsize=(5, 2.5))
-                        fig.patch.set_facecolor("#0E1117")
-                        has_data = plot_group(ax, group_name, active_params, class_colorgrammes_avg)
-                        plt.tight_layout()
-                        if has_data:
-                            st.pyplot(fig)
-                        plt.close(fig)
-                else:
-                    st.info("Draw a polygon to see the colorgramme.")
+                    fig, ax = plt.subplots(figsize=(5, 2.5))
+                    fig.patch.set_facecolor("#0E1117")
+                    has_data = plot_group(ax, group_name, active_params, class_colorgrammes_avg)
+                    plt.tight_layout()
+                    if has_data:
+                        st.pyplot(fig)
+                    plt.close(fig)
             else:
-                st.info("Draw a polygon to see the colorgramme.")
+                st.info("Close a polygon to see the colorgramme.")
         else:
-            st.info("Draw a polygon to see the colorgramme.")
+            st.info("Draw and close a polygon to see the colorgramme.")
 
     st.markdown("---")
     col_save, col_class_save = st.columns([3, 1])
@@ -319,41 +337,32 @@ def render():
 
     with col_save:
         if st.button("💾 Save polygons for this image", key=f"btn_save_{idx}"):
-            if canvas_result.json_data is None:
-                st.error("No polygons drawn.")
+            if not polygons:
+                st.warning("No polygons found.")
             else:
-                objects = canvas_result.json_data.get("objects", [])
-                polygons = [o for o in objects if o.get("type") == "path"]
+                results = []
+                for i, poly in enumerate(polygons):
+                    points = [(px / scale, py / scale) for (px, py) in poly["points"]]
+                    if len(points) < 3:
+                        continue
+                    mask = get_polygon_mask(points, img_h, img_w)
+                    colorgramme = extract_colorgramme(img_array, mask, config_params)
 
-                if not polygons:
-                    st.warning("No polygons found.")
-                else:
-                    results = []
-                    for i, poly in enumerate(polygons):
-                        path = poly.get("path", [])
-                        points = parse_polygon_points(path, scale)
-                        if len(points) < 3:
-                            continue
-                        mask = get_polygon_mask(points, img_h, img_w)
-                        colorgramme = extract_colorgramme(img_array, mask, config_params)
+                    results.append({
+                        "image": images_data[idx]["name"],
+                        "polygon": i + 1,
+                        "class": poly["class"],
+                        "colorgramme": colorgramme,
+                        "n_pixels": int(mask.sum())
+                    })
 
-                        assigned_class_for_this_polygon = poly_classes[i] if i < len(poly_classes) else selected_class
+                st.session_state[f"results_{idx}"] = results
 
-                        results.append({
-                            "image": images_data[idx]["name"],
-                            "polygon": i + 1,
-                            "class": assigned_class_for_this_polygon,
-                            "colorgramme": colorgramme,
-                            "n_pixels": int(mask.sum())
-                        })
+                all_results = []
+                for i in range(len(images_data)):
+                    img_results = st.session_state.get(f"results_{i}", [])
+                    all_results.extend(img_results)
+                st.session_state["all_results"] = all_results
 
-                    st.session_state[f"results_{idx}"] = results
-
-                    all_results = []
-                    for i in range(len(images_data)):
-                        img_results = st.session_state.get(f"results_{i}", [])
-                        all_results.extend(img_results)
-                    st.session_state["all_results"] = all_results
-
-                    st.success(f"✅ {len(results)} polygon(s) saved for {images_data[idx]['name']}! "
-                               f"Total: {len(all_results)} polygon(s) across all images.")
+                st.success(f"✅ {len(results)} polygon(s) saved for {images_data[idx]['name']}! "
+                           f"Total: {len(all_results)} polygon(s) across all images.")
